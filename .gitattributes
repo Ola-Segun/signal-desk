@@ -1,0 +1,17 @@
+# Normalise line endings.
+#
+# Without this, a clone on Windows checks out CRLF while CI on Linux expects
+# LF, and the whole tree reads as modified — or worse, lint fails on thousands
+# of line-ending errors that have nothing to do with the code.
+* text=auto eol=lf
+
+# Binary files must never be normalised.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.pdf binary
