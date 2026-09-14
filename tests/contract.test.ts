@@ -6,6 +6,7 @@ import {
   buildUserPrompt,
   extractJson,
 } from "@/lib/score/contract";
+import { directionFromTechnicals } from "@/lib/score";
 import { DEFAULT_MODEL_CHAIN } from "@/lib/score/providers/openrouter";
 import type { Ticker } from "@/lib/market/binance";
 import type { TechnicalScore } from "@/lib/score/technical";
@@ -164,6 +165,39 @@ describe("ANALYSIS_JSON_SCHEMA", () => {
     expect([...ANALYSIS_JSON_SCHEMA.required].sort()).toEqual(
       Object.keys(analysisSchema.shape).sort(),
     );
+  });
+});
+
+describe("directionFromTechnicals — the no-trade band", () => {
+  /**
+   * A flat read is how the pipeline declines to trade. It used to surface as
+   * `invalid_input`, which rendered the risk model doing its job as a red
+   * error box — the primary demo action failing for a correct reason. It is
+   * now a successful `no_trade` outcome.
+   *
+   * The neutral band must stay wide enough to actually fire: if RSI 50 were
+   * classified long or short, the system would take a position on noise.
+   */
+  it("treats the middle of the RSI range as flat", () => {
+    expect(directionFromTechnicals(50)).toBe("flat");
+    expect(directionFromTechnicals(45)).toBe("flat");
+    expect(directionFromTechnicals(55)).toBe("flat");
+  });
+
+  it("only commits to a direction outside the band", () => {
+    expect(directionFromTechnicals(55.1)).toBe("long");
+    expect(directionFromTechnicals(80)).toBe("long");
+    expect(directionFromTechnicals(44.9)).toBe("short");
+    expect(directionFromTechnicals(20)).toBe("short");
+  });
+
+  it("keeps the band symmetric around 50", () => {
+    // An asymmetric band would bias the system long or short for no stated
+    // reason, which is the kind of thing that hides in a magic number.
+    const lower = 45;
+    const upper = 55;
+    expect(50 - lower).toBe(upper - 50);
+    expect(directionFromTechnicals(lower)).toBe(directionFromTechnicals(upper));
   });
 });
 

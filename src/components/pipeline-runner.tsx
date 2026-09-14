@@ -20,7 +20,34 @@ type ScoreComponents = {
   participation: number;
 };
 
-type RouteResponse = {
+type ScoreBlock = {
+  composite: {
+    score: number;
+    direction: "long" | "short" | "flat";
+    llmUnavailableReason: string | null;
+    technical: {
+      rsi: number;
+      volatility: number;
+      volumeRatio: number;
+      components: ScoreComponents;
+    };
+    llm: {
+      conviction: number;
+      rationale: string;
+      risks: string[];
+      confidence: string;
+    } | null;
+  };
+};
+
+type NoTradeResponse = {
+  outcome: "no_trade";
+  score: ScoreBlock;
+  reason: string;
+};
+
+type RoutedResponse = {
+  outcome: "routed";
   run: {
     id: string;
     symbol: string;
@@ -42,25 +69,7 @@ type RouteResponse = {
     feeBps: number;
     simulated: boolean;
   };
-  score: {
-    composite: {
-      score: number;
-      direction: "long" | "short" | "flat";
-      llmUnavailableReason: string | null;
-      technical: {
-        rsi: number;
-        volatility: number;
-        volumeRatio: number;
-        components: ScoreComponents;
-      };
-      llm: {
-        conviction: number;
-        rationale: string;
-        risks: string[];
-        confidence: string;
-      } | null;
-    };
-  };
+  score: ScoreBlock;
   size: {
     quantity: number;
     notional: number;
@@ -80,6 +89,8 @@ type RouteResponse = {
   };
   persistence: "postgres" | "memory";
 };
+
+type RouteResponse = RoutedResponse | NoTradeResponse;
 
 type ApiEnvelope<T> = { ok: true; data: T } | { ok: false; error: AppError };
 
@@ -194,9 +205,11 @@ export function PipelineRunner({ universe }: { universe: Ticker[] }) {
             ? "Scoring, sizing and routing…"
             : error
               ? `Failed: ${error.message}`
-              : result
+              : result?.outcome === "routed"
                 ? `Simulated ${result.run.side} of ${result.run.symbol} routed to ${result.run.venue}.`
-                : ""}
+                : result?.outcome === "no_trade"
+                  ? "No position taken — the read came back flat."
+                  : ""}
         </p>
       </section>
 
@@ -212,12 +225,76 @@ export function PipelineRunner({ universe }: { universe: Ticker[] }) {
         </div>
       )}
 
-      {result && <PipelineResult result={result} />}
+      {result?.outcome === "no_trade" && <NoTradeResult result={result} />}
+      {result?.outcome === "routed" && <PipelineResult result={result} />}
     </div>
   );
 }
 
-function PipelineResult({ result }: { result: RouteResponse }) {
+/**
+ * Declining to trade is a result, and it gets a real panel rather than an
+ * error. A risk model that only ever says yes is not a risk model — showing
+ * the score behind a "no" is the more informative screen, not the consolation
+ * prize.
+ */
+function NoTradeResult({ result }: { result: NoTradeResponse }) {
+  const composite = result.score.composite;
+
+  return (
+    <div className="space-y-6">
+      <section aria-labelledby="notrade-heading" className="space-y-3">
+        <h2
+          id="notrade-heading"
+          className="text-sm font-semibold uppercase tracking-wide text-ink-300"
+        >
+          3 · Score — no position
+        </h2>
+
+        <div className="rounded-lg border border-flat/30 bg-desk-900 p-4">
+          <p className="text-sm text-ink-50">{result.reason}</p>
+          <p className="mt-2 text-xs text-ink-500">
+            Sizing and routing are skipped and nothing is written to the audit
+            trail, because there is no position to record. This is the pipeline
+            working, not failing.
+          </p>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <Stat label="Composite" value={composite.score.toFixed(1)} suffix="/100" emphasis />
+          <Stat label="Direction" value={composite.direction} />
+          <Stat label="RSI(14)" value={composite.technical.rsi.toFixed(1)} />
+          <Stat
+            label="Volatility (daily)"
+            value={`${(composite.technical.volatility * 100).toFixed(2)}%`}
+          />
+        </div>
+
+        <div className="rounded-lg border border-desk-700 bg-desk-900 p-4 text-sm">
+          <h3 className="mb-2 text-xs uppercase tracking-wide text-ink-500">
+            Why — components before weighting
+          </h3>
+          <dl className="grid gap-2 sm:grid-cols-3">
+            <Component label="Momentum" value={composite.technical.components.momentum} />
+            <Component label="Volatility" value={composite.technical.components.volatility} />
+            <Component label="Participation" value={composite.technical.components.participation} />
+          </dl>
+        </div>
+
+        {composite.llm && (
+          <div className="rounded-lg border border-accent/40 bg-accent/5 p-4 text-sm">
+            <h3 className="mb-1 text-xs uppercase tracking-wide text-accent">
+              Model assessment · conviction {composite.llm.conviction}/100 ·{" "}
+              {composite.llm.confidence} confidence
+            </h3>
+            <p className="text-ink-300">{composite.llm.rationale}</p>
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function PipelineResult({ result }: { result: RoutedResponse }) {
   const { run, score, size, decision, persistence } = result;
   const composite = score.composite;
 

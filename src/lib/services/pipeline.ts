@@ -166,14 +166,35 @@ export function size(
 
 // --- ROUTE ----------------------------------------------------------------
 
-export type RouteOutput = {
-  run: RunRow;
-  score: ScoreOutput;
-  size: SizeResult;
-  decision: RouteDecision;
-  /** Which store the run was written to, so the UI can be honest about it. */
-  persistence: "postgres" | "memory";
-};
+/**
+ * The pipeline has two legitimate outcomes, and declining to trade is one of
+ * them.
+ *
+ * This used to return `invalid_input` when the read came back flat, which
+ * surfaced a 400 and rendered as an error. Nothing invalid had happened — the
+ * system had correctly decided there was no edge — but the UI reported the risk
+ * model doing its job as though the user had made a mistake. A demo whose
+ * primary action frequently shows a red error box reads as broken.
+ *
+ * Modelling it as a discriminated union means the caller cannot forget to
+ * handle the no-trade case: it is in the type.
+ */
+export type RouteOutput =
+  | {
+      outcome: "routed";
+      run: RunRow;
+      score: ScoreOutput;
+      size: SizeResult;
+      decision: RouteDecision;
+      /** Which store the run was written to, so the UI can be honest about it. */
+      persistence: "postgres" | "memory";
+    }
+  | {
+      outcome: "no_trade";
+      score: ScoreOutput;
+      /** Why no position was taken, in plain language. */
+      reason: string;
+    };
 
 /**
  * The full pipeline: scan → score → size → route, then persist the audit row.
@@ -190,13 +211,18 @@ export async function route(
 
   const { ticker, composite } = scored.value;
 
+  // Declining to trade is a result, not a failure. Returned as a success so the
+  // UI can show the score and the reasoning rather than an error box.
   if (composite.direction === "flat") {
-    return err(
-      appError(
-        "invalid_input",
-        `The current read on ${input.symbol} is flat, so there is no position to size or route.`,
-      ),
-    );
+    const detail = composite.llm
+      ? `The model read it as flat with ${composite.llm.conviction}/100 conviction.`
+      : `RSI of ${composite.technical.rsi.toFixed(1)} sits in the neutral band.`;
+
+    return ok({
+      outcome: "no_trade",
+      score: scored.value,
+      reason: `No position taken on ${input.symbol}: the current read is flat, so there is no directional edge to size. ${detail}`,
+    });
   }
 
   const side = composite.direction === "long" ? "buy" : "sell";
@@ -249,6 +275,7 @@ export async function route(
   if (!inserted.ok) return inserted;
 
   return ok({
+    outcome: "routed",
     run: inserted.value,
     score: scored.value,
     size: sized.value,
