@@ -38,11 +38,38 @@ type PostgresDb = ReturnType<typeof drizzle<{ runs: typeof runs }>>;
 
 let cached: { client: postgres.Sql; db: PostgresDb } | undefined;
 
+/**
+ * Supabase (and most managed Postgres) put PgBouncer in front of the database.
+ * In transaction pooling mode a connection is handed to a different session
+ * between statements, so server-side prepared statements — which postgres.js
+ * uses by default — break with "prepared statement s1 already exists".
+ *
+ * Detected from the URL rather than configured separately, so pasting the
+ * pooler string from the Supabase dashboard just works.
+ */
+function usesTransactionPooler(url: string): boolean {
+  return (
+    url.includes("pooler.supabase.com") ||
+    url.includes(":6543") ||
+    url.includes("pgbouncer=true")
+  );
+}
+
 function connection(url: string): { client: postgres.Sql; db: PostgresDb } {
   // Cached across hot reloads in dev, where the module graph is re-evaluated
   // on every edit and an uncached client would leak a connection each time.
   if (cached) return cached;
-  const client = postgres(url, { max: 5, idle_timeout: 20 });
+
+  const pooled = usesTransactionPooler(url);
+  const client = postgres(url, {
+    // A serverless function should hold very few connections; the pooler is
+    // what multiplexes them.
+    max: pooled ? 1 : 5,
+    idle_timeout: 20,
+    connect_timeout: 15,
+    prepare: !pooled,
+  });
+
   cached = { client, db: drizzle(client, { schema: { runs } }) };
   return cached;
 }

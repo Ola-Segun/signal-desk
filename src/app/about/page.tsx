@@ -20,7 +20,7 @@ const REAL: ReadonlyArray<{ what: string; detail: string }> = [
   {
     what: "Model scoring",
     detail:
-      "A real Claude API call, constrained to a JSON schema and re-validated on arrival. When no API key is configured the app says so and falls back to deterministic scoring rather than inventing a number.",
+      "A real API call — OpenRouter free models by default, Claude if configured — constrained to a JSON schema and re-validated on arrival. Free models fail often enough that three are tried in order. When none is configured the app says so and falls back to deterministic scoring rather than inventing a number.",
   },
   {
     what: "On-chain reads",
@@ -126,6 +126,16 @@ export default function AboutPage() {
           anything that must be exactly reproducible, auditable after the fact,
           or safe under adversarial input — which is all of sizing, routing and
           execution.
+        </p>
+        <p className="text-sm text-ink-300">
+          The model is also deliberately <em>not</em> shown the deterministic
+          composite. It was at first, and measurement showed it anchoring hard:
+          feeding a fabricated composite of 12 or 94 in place of the real 58
+          dragged the model&rsquo;s own conviction to 18–24 or 82–84 on
+          identical indicators. That made the two halves of the score one
+          signal wearing two hats. It now sees the same evidence the indicators
+          are computed from, and the two are free to disagree — which is the
+          only situation in which combining them tells you anything.
         </p>
       </section>
 

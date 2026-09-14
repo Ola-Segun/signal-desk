@@ -35,11 +35,23 @@ To enable the rest, copy `.env.example` to `.env.local`:
 
 | Variable | Enables | Without it |
 | --- | --- | --- |
-| `ANTHROPIC_API_KEY` | Model scoring | Deterministic score only, and the UI says so |
+| `OPENROUTER_API_KEY` | Model scoring on free models | Deterministic score only, and the UI says so |
+| `ANTHROPIC_API_KEY` | Model scoring via Claude | Used only when OpenRouter is unset |
+| `OPENROUTER_MODELS` | Override the model chain | Uses the measured defaults |
+| `LLM_PROVIDER` | Force `openrouter` or `anthropic` | Prefers OpenRouter when both are set |
 | `DATABASE_URL` | Postgres persistence | In-memory store, resets on restart |
-| `ETHEREUM_RPC_URL` | Your own RPC | Falls back to a public endpoint |
+| `ETHEREUM_RPC_URL` | Pin one RPC | Fails over across three public endpoints |
 
-With `DATABASE_URL` set, create the table:
+### Postgres (Supabase)
+
+Take the **Transaction pooler** string from Dashboard → Connect (port `6543`),
+not the direct connection — a serverless function opening a direct connection
+per invocation exhausts the database's connection limit. Prepared statements
+are disabled automatically when a pooler URL is detected, which PgBouncer in
+transaction mode requires.
+
+Create the table by running [`drizzle/0000_create_runs.sql`](drizzle/0000_create_runs.sql)
+in the Supabase SQL Editor, or:
 
 ```bash
 npm run db:push
@@ -50,7 +62,7 @@ npm run db:push
 ```bash
 npm run typecheck   # tsc --noEmit, strict
 npm run lint        # eslint
-npm test            # vitest — 89 tests
+npm test            # vitest — 109 tests
 npm run build       # production build
 ```
 
@@ -93,14 +105,60 @@ Two halves, combined 60/40 in favour of the deterministic one.
 volume against its own recent baseline. Pure functions — no I/O, no clock, no
 randomness. Each formula is stated in a comment above its implementation.
 
-**Model:** a Claude call constrained by `output_config.format` to a JSON schema,
-then re-validated with Zod on arrival. The API constraint is the contract; the
-Zod parse is the guard for when the contract is wrong. No free-text parsing
+**Model:** a call constrained to a JSON schema, then re-validated with Zod on
+arrival. The schema is the contract; the Zod parse is the guard for when the
+contract is broken — and on free models it regularly is. No free-text parsing
 anywhere.
 
-`stop_reason` is checked **before** `content` is read — a refusal returns HTTP
-200 with empty or partial content, so indexing `content[0]` first is a latent
-crash rather than an error case.
+Two providers implement the same contract — identical prompt, schema and
+validation — so which one runs is a deployment decision, not an architectural
+one. OpenRouter (free tier) is preferred when configured; Anthropic otherwise.
+
+> ### The model was marking its own homework
+>
+> The prompt originally included the deterministic composite, on the reasoning
+> that more context is better. Measuring it showed the opposite. Holding the
+> indicators constant and varying **only** the supplied composite:
+>
+> | Composite supplied | Model's own conviction |
+> | --- | --- |
+> | 58.3 (real) | 58, 61 |
+> | 12.0 (fabricated) | 24, 18 |
+> | 94.0 (fabricated) | 84, 82 — direction flipped to `long` |
+> | omitted (control) | 56, 61 |
+>
+> The model was tracking the number it had been handed. That made the "model
+> half" a restatement of the deterministic half, so blending them 60/40
+> double-counted a single signal while presenting it as two independent
+> opinions — worse than having no model at all, because it looks like
+> corroboration.
+>
+> The composite is no longer sent. The model sees the same evidence the
+> indicators are computed from and forms its own view, so the two halves can
+> disagree — which is the only circumstance under which blending them means
+> anything. `tests/contract.test.ts` asserts the composite never re-enters the
+> prompt.
+
+**Free models need a fallback chain.** Measured across repeated runs of the
+real prompt:
+
+| Model | Valid analyses | Notes |
+| --- | --- | --- |
+| `nex-agi/nex-n2.5-pro:free` | 2/2 | Primary |
+| `nvidia/nemotron-3-super-120b-a12b:free` | 1/2 | Truncated mid-JSON once |
+| `dots-studio/dots-3-note-preview:free` | 1/2 | Returned an empty `risks` array |
+| `google/gemma-4-*:free` | 0/2 | Provider error |
+| `thinkingmachines/inkling:free` | — | Not available outside agentic harnesses |
+
+The dominant failure is `finish_reason: "length"` — these are reasoning models,
+and a long reasoning pass can exhaust the token budget before any content is
+emitted, truncating the JSON. Hence a generous `max_tokens` and a chain rather
+than a single model: roughly 50–100% per-model reliability composes into
+something dependable when three are tried in order.
+
+On Anthropic, `stop_reason` is checked **before** `content` is read — a refusal
+returns HTTP 200 with empty or partial content, so indexing `content[0]` first
+is a latent crash rather than an error case.
 
 When the model half is unavailable the composite falls back to the
 deterministic score and reports why. It does not substitute a neutral 50, which
@@ -204,8 +262,8 @@ found by reading a build warning, not by guessing.
 ## Stack
 
 Next.js 16 (App Router, Server Components, Route Handlers) · React 19 ·
-TypeScript strict · PostgreSQL via Drizzle · GraphQL Yoga · viem · Anthropic SDK
-· Vitest · Tailwind CSS v4 · deployed on Vercel.
+TypeScript strict · PostgreSQL via Drizzle (Supabase-ready) · GraphQL Yoga ·
+viem · OpenRouter and the Anthropic SDK · Vitest · Tailwind CSS v4 · Vercel.
 
 ---
 
@@ -223,7 +281,7 @@ three-item check reads like "67%" and silently demands a perfect score; a test
 written from the output would have locked that behaviour in rather than caught
 it.
 
-Four real defects were caught during the build, none by the type checker:
+Five real defects were caught during the build, none by the type checker:
 
 1. **A sign error in the slippage model** — market impact was applied
    side-independently, so a buy and a sell got identical slippage. Now covered
@@ -240,10 +298,18 @@ Four real defects were caught during the build, none by the type checker:
    default but discarded the error codes the service layer produces. Resolvers
    now throw a real `GraphQLError`.
 
-The last two were only reachable by running the server and walking the routes —
-typecheck, lint, tests and a clean build all passed while both were present.
-That is the argument for exercising a flow end to end rather than trusting a
-green pipeline.
+5. **The model was anchoring on the deterministic composite** — see the table
+   above. Every check in the pipeline passed while the two halves of the score
+   were silently measuring the same thing. Only a deliberate experiment
+   — feed a fabricated composite, see whether the model's answer moves —
+   surfaced it.
+
+Defects 3 and 4 were only reachable by running the server and walking the
+routes; typecheck, lint, tests and a clean build all passed while both were
+present. Defect 5 was not reachable by any of that, because nothing was
+broken — the system did exactly what it was told, and what it was told was
+wrong. That is the argument for exercising the flow end to end *and* for
+measuring whether a component actually does what you assumed.
 
 The deterministic core is well covered. UI coverage is deliberately not chased —
 a snapshot of a `div` proves nothing.
