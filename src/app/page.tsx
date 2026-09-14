@@ -1,69 +1,74 @@
-import Image from "next/image";
+import { PipelineRunner } from "@/components/pipeline-runner";
+import { TokenReader } from "@/components/token-reader";
+import { isDatabaseConfigured, isLlmConfigured } from "@/lib/env";
+import { scan } from "@/lib/services/pipeline";
 
-export default function Home() {
+/**
+ * The desk.
+ *
+ * The universe is fetched on the server so the grid has rows before any
+ * JavaScript runs — the page is readable without a working socket, and the
+ * socket only takes over updating it.
+ */
+export default async function DeskPage() {
+  const universe = await scan({ limit: 12 });
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+    <div className="space-y-10">
+      <header className="space-y-2">
+        <h1 className="text-2xl font-semibold tracking-tight">
+          Scan → Score → Size → Route
+        </h1>
+        <p className="max-w-3xl text-sm text-ink-300">
+          Live market data from a public exchange feed, scored by deterministic
+          indicators and a language model constrained to a JSON schema, sized
+          against a unit-tested risk model, and routed to the best of four
+          fictional venues. The routing step is simulated and writes an
+          immutable audit row. Nothing here places an order.
+        </p>
+        <ConfigNotice />
+      </header>
+
+      {universe.ok ? (
+        <PipelineRunner universe={universe.value} />
+      ) : (
+        <div
+          role="alert"
+          className="rounded-lg border border-down/50 bg-down/10 p-4 text-sm"
+        >
+          <p className="font-medium text-down">{universe.error.message}</p>
+          {universe.error.detail && (
+            <p className="mt-1 text-xs text-ink-300">{universe.error.detail}</p>
+          )}
+          <p className="mt-2 text-xs text-ink-500">
+            The exchange endpoint is public and unauthenticated, so this is
+            usually a network or regional restriction rather than a
+            configuration problem.
           </p>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+      )}
+
+      <hr className="border-desk-800" />
+
+      <TokenReader />
     </div>
+  );
+}
+
+/**
+ * Says plainly which optional pieces are configured. A demo that silently
+ * degrades looks broken; one that explains itself looks deliberate.
+ */
+function ConfigNotice() {
+  const llm = isLlmConfigured();
+  const db = isDatabaseConfigured();
+  if (llm && db) return null;
+
+  return (
+    <p className="rounded border border-desk-700 bg-desk-850 px-3 py-2 text-xs text-ink-500">
+      <strong className="text-ink-300">Running in reduced mode.</strong>{" "}
+      {!llm && "Model scoring is off (no ANTHROPIC_API_KEY) — scores are deterministic only. "}
+      {!db && "Audit rows go to an in-memory store (no DATABASE_URL) and reset on restart."}
+    </p>
   );
 }
