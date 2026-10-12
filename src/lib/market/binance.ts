@@ -11,8 +11,42 @@ import { appError, err, ok, type AppError, type Result } from "@/lib/result";
  * `undefined` surfacing three layers away.
  */
 
-const REST_BASE = "https://api.binance.com";
+/**
+ * Binance provides four interchangeable REST hosts. Cloudflare edge IPs are
+ * commonly rate-limited (HTTP 423 / 429) by the primary `api.binance.com` —
+ * rotating through the alternatives on any retryable status resolves this
+ * without adding a dependency or requiring configuration.
+ */
+const REST_HOSTS = [
+  "https://api.binance.com",
+  "https://api1.binance.com",
+  "https://api2.binance.com",
+  "https://api3.binance.com",
+];
 export const WS_BASE = "wss://stream.binance.com:9443/stream";
+
+/** HTTP statuses that indicate a transient block rather than a bad request. */
+const RETRYABLE = new Set([423, 429, 500, 502, 503, 504]);
+
+/**
+ * Fetch `path` (e.g. `/api/v3/ticker/24hr`) trying each REST host in order
+ * until one succeeds or all are exhausted. Returns the last response so that
+ * a definitive non-retryable failure (400, 404, …) from the first host is
+ * still surfaced to the caller correctly.
+ */
+async function fetchWithFallback(
+  path: string,
+  init: RequestInit,
+  fetchImpl: typeof fetch,
+): Promise<Response> {
+  let lastResponse: Response | undefined;
+  for (const host of REST_HOSTS) {
+    const response = await fetchImpl(`${host}${path}`, init);
+    if (!RETRYABLE.has(response.status)) return response;
+    lastResponse = response;
+  }
+  return lastResponse!;
+}
 
 // --- 24h ticker -----------------------------------------------------------
 
@@ -101,10 +135,11 @@ export async function fetchUniverse(
   } else {
     let payload: unknown;
     try {
-      const response = await fetchImpl(`${REST_BASE}/api/v3/ticker/24hr`, {
-        // Deliberately uncached at the fetch layer — see the note above.
-        cache: "no-store",
-      });
+      const response = await fetchWithFallback(
+        "/api/v3/ticker/24hr",
+        { cache: "no-store" },
+        fetchImpl,
+      );
       if (!response.ok) {
         return err(
           appError(
@@ -203,17 +238,19 @@ export async function fetchCandles(
     return err(appError("invalid_input", `"${symbol}" is not a valid symbol.`));
   }
 
-  const url = new URL(`${REST_BASE}/api/v3/klines`);
-  url.searchParams.set("symbol", symbol);
-  url.searchParams.set("interval", interval);
-  url.searchParams.set("limit", String(Math.min(Math.max(limit, 2), 1000)));
+  const url = new URLSearchParams({
+    symbol,
+    interval,
+    limit: String(Math.min(Math.max(limit, 2), 1000)),
+  });
 
   let payload: unknown;
   try {
-    const response = await fetchImpl(url, {
-      cache: "force-cache",
-      next: { revalidate: 30 },
-    });
+    const response = await fetchWithFallback(
+      `/api/v3/klines?${url}`,
+      { cache: "force-cache", next: { revalidate: 30 } },
+      fetchImpl,
+    );
     if (!response.ok) {
       // Binance answers an unknown symbol with a 400. That is a bad request,
       // not an outage — mapping it to `upstream_unavailable` would return a

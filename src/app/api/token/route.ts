@@ -2,8 +2,6 @@ import { sendError, sendResult } from "@/app/api/_lib/respond";
 import { readToken } from "@/lib/chain/erc20";
 import { appError } from "@/lib/result";
 
-export const runtime = "nodejs";
-
 /**
  * GET /api/token?address=0x...
  *

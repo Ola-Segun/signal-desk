@@ -1,8 +1,6 @@
 import { parseJsonBody, sendError, sendResult } from "@/app/api/_lib/respond";
 import { score, scoreInputSchema } from "@/lib/services/pipeline";
 
-export const runtime = "nodejs";
-
 /**
  * POST /api/score  { symbol, skipLlm? }
  *

@@ -1,8 +1,6 @@
 import { parseJsonBody, sendError, sendResult } from "@/app/api/_lib/respond";
 import { route, routeInputSchema } from "@/lib/services/pipeline";
 
-export const runtime = "nodejs";
-
 /**
  * POST /api/route  { symbol, accountEquity?, riskPct?, skipLlm? }
  *

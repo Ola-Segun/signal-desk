@@ -1,8 +1,6 @@
 import { parseJsonBody, sendError, sendResult } from "@/app/api/_lib/respond";
 import { size, sizeInputSchema } from "@/lib/services/pipeline";
 
-export const runtime = "nodejs";
-
 /**
  * POST /api/size  { accountEquity, riskPct, entry, stopLoss, takeProfit?, volatility }
  *

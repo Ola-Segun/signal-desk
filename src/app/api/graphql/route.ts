@@ -16,7 +16,7 @@ import {
 } from "@/lib/services/pipeline";
 import type { AppError, Result } from "@/lib/result";
 
-export const runtime = "nodejs";
+export const runtime = "edge";
 
 /**
  * GraphQL over the *same* service layer as the REST handlers.

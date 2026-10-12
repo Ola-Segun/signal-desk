@@ -1,6 +1,6 @@
 import { PipelineRunner } from "@/components/pipeline-runner";
 import { TokenReader } from "@/components/token-reader";
-import { isDatabaseConfigured, isLlmConfigured } from "@/lib/env";
+import { isDatabaseConfigured, isLlmConfigured, llmProvider } from "@/lib/env";
 import { scan } from "@/lib/services/pipeline";
 
 /**
@@ -60,14 +60,19 @@ export default async function DeskPage() {
  * degrades looks broken; one that explains itself looks deliberate.
  */
 function ConfigNotice() {
+  const provider = llmProvider();
   const llm = isLlmConfigured();
   const db = isDatabaseConfigured();
   if (llm && db) return null;
 
+  const llmNote = !llm
+    ? "Model scoring is off (no OPENROUTER_API_KEY or ANTHROPIC_API_KEY) — scores are deterministic only. "
+    : `Model scoring active via ${provider === "openrouter" ? "OpenRouter" : "Anthropic"}. `;
+
   return (
     <p className="rounded border border-desk-700 bg-desk-850 px-3 py-2 text-xs text-ink-500">
       <strong className="text-ink-300">Running in reduced mode.</strong>{" "}
-      {!llm && "Model scoring is off (no ANTHROPIC_API_KEY) — scores are deterministic only. "}
+      {!llm && llmNote}
       {!db && "Audit rows go to an in-memory store (no DATABASE_URL) and reset on restart."}
     </p>
   );

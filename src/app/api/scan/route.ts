@@ -1,9 +1,6 @@
 import { parseSearchParams, sendError, sendResult } from "@/app/api/_lib/respond";
 import { scan, scanInputSchema } from "@/lib/services/pipeline";
 
-/** Node runtime: the service layer reaches Postgres and the Anthropic SDK. */
-export const runtime = "nodejs";
-
 /**
  * GET /api/scan?limit=12&quoteAsset=USDT
  *
