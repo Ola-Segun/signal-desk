@@ -70,6 +70,16 @@ All four run in CI on every push and pull request, with no secrets provided —
 the build must succeed without an API key or a database, which is also how a
 reviewer will first run it.
 
+### Deploy to Cloudflare Workers
+
+The project is configured for Cloudflare Workers via `@opennextjs/cloudflare`. Full setup details, secret handling, and CI instructions are documented in [`CLOUDFLARE-DEPLOYMENT.md`](CLOUDFLARE-DEPLOYMENT.md).
+
+```bash
+pnpm run build:worker   # build the workerd bundle (.open-next/worker.js)
+pnpm run preview        # preview locally with workerd runtime
+pnpm run deploy         # deploy to Cloudflare Workers via Wrangler
+```
+
 ---
 
 ## The pipeline

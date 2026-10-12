@@ -2,6 +2,16 @@ import path from "node:path";
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  images: {
+    unoptimized: true,
+  },
+  outputFileTracingExcludes: {
+    "*": [
+      "node_modules/sharp/**/*",
+      "node_modules/@img/**/*",
+      "node_modules/@emnapi/**/*",
+    ],
+  },
   turbopack: {
     /**
      * Pin the workspace root. Without this, Turbopack walks up the filesystem
