@@ -18,29 +18,35 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
+          cache: pnpm
 
       - name: Install
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       # Route types are generated from the app directory and are needed by
       # tsc; without this step `PageProps<'/runs'>` does not resolve in CI.
       - name: Generate route types
-        run: npx next typegen
+        run: pnpm exec next typegen
 
       - name: Typecheck
-        run: npm run typecheck
+        run: pnpm run typecheck
 
       - name: Lint
-        run: npm run lint
+        run: pnpm run lint
 
       - name: Test
-        run: npm test
+        run: pnpm test
 
       # No secrets are provided. The build must succeed without an API key or a
       # database, which is also how a reviewer will first run it.
+      # Uses the standard Next.js build (not the Cloudflare worker bundle) so
+      # that the CI step has no native-addon or workerd dependencies.
       - name: Build
-        run: npm run build
+        run: pnpm run build:next

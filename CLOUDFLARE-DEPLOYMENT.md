@@ -60,9 +60,13 @@ To deploy automatically on every `git push`:
 1. Go to **Cloudflare Dashboard** → **Compute (Workers & Pages)** → **Create** → **Workers**.
 2. Select **Import a repository** and choose your repository.
 3. Configure the build settings:
-   - **Framework Preset**: None (or Next.js)
+   - **Framework Preset**: None
    - **Build command**: `pnpm run build:worker`
+     *(must be `build:worker`, not `build` — the worker build runs `opennextjs-cloudflare build`
+     which produces `.open-next/`. Using `build` alone runs the standard Next.js build, which
+     produces `.next/` only and leaves wrangler unable to find the compiled worker.)*
    - **Deploy command**: `pnpm exec wrangler deploy`
+     *(use `pnpm exec`, not `npx`, so it picks up the project-local wrangler from `node_modules`)*
    - **Root directory**: `/` (or `signal-desk` if deploying from a monorepo root)
 4. Add Environment Variables / Secrets under **Settings** → **Variables and Secrets**:
    - `DATABASE_URL` (Supabase transaction pooler port `6543`)
